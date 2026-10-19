@@ -53,7 +53,7 @@ input.num{text-align:right;font-variant-numeric:tabular-nums}
 .btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .row-form{display:grid;gap:12px;align-items:end}
 .f-gasto{grid-template-columns:140px 1fr 1fr 140px 150px auto}
-.f-deuda{grid-template-columns:1fr 150px 150px 120px auto}
+.f-deuda{grid-template-columns:1fr 150px 150px 120px 230px auto}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
 th{background:var(--navy);color:var(--cream);text-align:left;font-size:14px;padding:10px 12px}
 th.r,td.r{text-align:right}
@@ -182,8 +182,14 @@ footer b{color:var(--cream)}
     <div class="wide"><label for="dNom">Acreedor</label><input id="dNom" placeholder="Ej.: tarjeta de crédito" required></div>
     <div><label for="dSaldo">Saldo actual ($)</label><input id="dSaldo" class="num" inputmode="numeric" required></div>
     <div><label for="dCuota">Cuota mínima ($)</label><input id="dCuota" class="num" inputmode="numeric" required></div>
-    <div><label for="dTasa">Tasa mensual (%)</label><input id="dTasa" class="num" inputmode="decimal" placeholder="2,5"></div>
+    <div><label for="dTasa">Tasa de interés (%)</label><input id="dTasa" class="num" inputmode="decimal" placeholder="Ej.: 28,5"></div>
+    <div><label for="dTipo">Tipo de tasa</label><select id="dTipo">
+      <option value="ea">Efectiva anual (E.A.)</option>
+      <option value="nmv">Nominal anual mes vencido (N.M.V.)</option>
+      <option value="mv">Mensual vencida (M.V.)</option>
+    </select></div>
     <div><button class="btn" type="submit">Agregar</button></div>
+    <p id="tasaConv" class="muted" style="grid-column:1/-1;margin:0;font-size:14px" aria-live="polite">Escribe la tasa tal como aparece en tu extracto y elige su tipo: la herramienta la convierte a tasa mensual.</p>
   </form>
   <div class="table-wrap"><table>
     <thead><tr><th>Orden</th><th>Acreedor</th><th class="r">Saldo</th><th class="r">Cuota mínima</th><th class="r">Tasa mensual</th><th class="r">Meses solo con el mínimo</th><th class="no-print"></th></tr></thead>
@@ -459,13 +465,32 @@ footer b{color:var(--cream)}
     }
     return Math.ceil(hi/1000)*1000;
   }
+  // ----- Conversor de tasas -----
+  // Devuelve la tasa mensual vencida en % a partir de la tasa y su tipo
+  function aMensual(t, tipo){
+    if (!t) return 0;
+    if (tipo === "ea") return (Math.pow(1 + t/100, 1/12) - 1) * 100;
+    if (tipo === "nmv") return t / 12;
+    return t;
+  }
+  function aEA(mensual){ return (Math.pow(1 + mensual/100, 12) - 1) * 100; }
+  function pctTxt(n, d){ return n.toFixed(d === undefined ? 4 : d).replace(/0+$/,"").replace(/\.$/,"").replace(".",",") + " %"; }
+  function renderConv(){
+    var t = parseNum($("dTasa").value), tipo = $("dTipo").value, el = $("tasaConv");
+    if (!t){ el.textContent = "Escribe la tasa tal como aparece en tu extracto y elige su tipo: la herramienta la convierte a tasa mensual."; return; }
+    var m = aMensual(t, tipo);
+    el.innerHTML = "Equivale a <b>" + pctTxt(m) + " mensual (M.V.)</b> · " + pctTxt(m*12, 2) + " N.M.V. · " + pctTxt(aEA(m), 2) + " E.A.";
+  }
   function buildDeudas(){
+    $("dTasa").addEventListener("input", renderConv);
+    $("dTipo").addEventListener("change", renderConv);
     $("formDeuda").addEventListener("submit", function(e){
       e.preventDefault();
       var saldo = parseNum($("dSaldo").value), cuota = parseNum($("dCuota").value);
       if (!saldo || !cuota) return;
-      S.deudas.push({id:Date.now(), nombre:$("dNom").value.trim(), saldo:saldo, cuota:cuota, tasa:parseNum($("dTasa").value)});
-      save(); this.reset(); $("dNom").focus(); renderDeudas();
+      var tipo = $("dTipo").value;
+      S.deudas.push({id:Date.now(), nombre:$("dNom").value.trim(), saldo:saldo, cuota:cuota, tasa:aMensual(parseNum($("dTasa").value), tipo)});
+      save(); this.reset(); $("dTipo").value = tipo; renderConv(); $("dNom").focus(); renderDeudas();
     });
     $("tbDeudas").addEventListener("click", function(e){
       var id = e.target.dataset.deld; if (!id) return;
@@ -486,7 +511,7 @@ footer b{color:var(--cream)}
       ts += d.saldo; tc += d.cuota;
       var m = mesesMinimo(d);
       var mTxt = m === null ? '<span class="neg">La cuota no cubre los intereses</span>' : m + (m === 1 ? " mes" : " meses");
-      return '<tr><td><b>'+(i+1)+'</b></td><td>'+esc(d.nombre)+'</td><td class="r">'+money(d.saldo)+'</td><td class="r">'+money(d.cuota)+'</td><td class="r">'+(d.tasa ? String(d.tasa).replace(".",",")+" %" : "—")+'</td><td class="r">'+mTxt+'</td><td class="no-print"><button class="btn small danger" data-deld="'+d.id+'" aria-label="Borrar deuda">Borrar</button></td></tr>';
+      return '<tr><td><b>'+(i+1)+'</b></td><td>'+esc(d.nombre)+'</td><td class="r">'+money(d.saldo)+'</td><td class="r">'+money(d.cuota)+'</td><td class="r">'+(d.tasa ? pctTxt(d.tasa) + '<br><span class="muted" style="font-size:13px">' + pctTxt(aEA(d.tasa), 2) + ' E.A.</span>' : "—")+'</td><td class="r">'+mTxt+'</td><td class="no-print"><button class="btn small danger" data-deld="'+d.id+'" aria-label="Borrar deuda">Borrar</button></td></tr>';
     }).join("") + '<tr class="total"><td colspan="2">Total</td><td class="r">'+money(ts)+'</td><td class="r">'+money(tc)+'</td><td colspan="3"></td></tr>';
     renderSim();
   }

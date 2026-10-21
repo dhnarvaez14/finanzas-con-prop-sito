@@ -38,7 +38,14 @@ section.panel.active{display:block}
 .card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:20px}
 .card h3{font-size:20px;margin-bottom:12px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px}
+.bar{display:flex;height:30px;border-radius:10px;overflow:hidden;background:var(--sand);margin:6px 0 10px}
+.bar span{display:block;height:100%}
+.leg{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:14px;margin-bottom:14px}
+.leg i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.cats{display:grid;grid-template-columns:minmax(150px,1.2fr) 3fr auto;gap:6px 12px;align-items:center;font-size:14px;font-variant-numeric:tabular-nums}
+.cats .mini{height:10px;border-radius:6px;background:var(--navy)}
+.cats .amt{text-align:right;white-space:nowrap}
 .stat{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
 .stat .k{font-size:13px;color:var(--muted);font-weight:600}
 .stat .v{font-family:'Domine',Georgia,serif;font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
@@ -148,6 +155,7 @@ footer b{color:var(--cream)}
     <div style="flex:1;min-width:200px"><label for="mes">Mes del presupuesto</label><input id="mes" placeholder="Ej.: Noviembre 2026"></div>
   </div>
   <div class="stats" id="resumen"></div>
+  <div class="card" id="compo"></div>
   <div id="tablas"></div>
 </section>
 
@@ -394,7 +402,36 @@ footer b{color:var(--cream)}
       '<div class="stat"><div class="k">Disponible por asignar</div><div class="v '+(disp<0?"neg":"")+'">'+money(disp)+'</div>'+estado+'</div>' +
       '<div class="stat"><div class="k">Para dar</div><div class="v">'+pct(t.dar.p,t.ingresos.p)+'</div><div class="k">de tus ingresos</div></div>' +
       '<div class="stat"><div class="k">Para ahorrar</div><div class="v">'+pct(t.ahorrar.p,t.ingresos.p)+'</div><div class="k">de tus ingresos</div></div>' +
-      '<div class="stat"><div class="k">En pago de deudas</div><div class="v">'+pct(deudasP,t.ingresos.p)+'</div><div class="k">de tus ingresos</div></div>';
+      '<div class="stat"><div class="k">En pago de deudas</div><div class="v">'+pct(deudasP,t.ingresos.p)+'</div><div class="k">de tus ingresos</div></div>' +
+      '<div class="stat"><div class="k">Gastos del hogar</div><div class="v">'+pct(t.gastos.p-deudasP,t.ingresos.p)+'</div><div class="k">de tus ingresos</div></div>';
+    renderCompo(t);
+  }
+  var COLS = {dar:"#D9A441", ahorrar:"#2F7A5B", deudas:"#B8452F", hogar:"#1E2B3A", libre:"#BDB3A2"};
+  function barra(titulo, ing, dar, aho, deu, hog, real){
+    var libre = ing - dar - aho - deu - hog, base = Math.max(ing, dar + aho + deu + hog) || 1;
+    var seg = [["Dar", dar, COLS.dar], ["Ahorrar", aho, COLS.ahorrar], ["Pago de deudas", deu, COLS.deudas], ["Gastos del hogar", hog, COLS.hogar]];
+    if (libre > 0) seg.push([real ? "Aún sin gastar" : "Sin asignar", libre, COLS.libre]);
+    var pc = function(v){ return ing ? (v/ing*100).toFixed(1).replace(".",",")+" %" : "–"; };
+    return '<h3 style="margin-top:4px">'+titulo+'</h3>'+
+      '<div class="bar" role="img" aria-label="'+titulo+'">'+seg.map(function(x){ return x[1] > 0 ? '<span style="width:'+(x[1]/base*100)+'%;background:'+x[2]+'" title="'+x[0]+': '+money(x[1])+'"></span>' : ''; }).join("")+'</div>'+
+      '<div class="leg">'+seg.map(function(x){ return '<span><i style="background:'+x[2]+'"></i><b>'+x[0]+'</b> '+pc(x[1])+' · '+money(x[1])+'</span>'; }).join("")+
+      (libre < 0 ? '<span class="neg">Faltan '+money(-libre)+' para cubrir todo</span>' : '')+'</div>';
+  }
+  function renderCompo(t){
+    var el = $("compo"), deuP = S.presupuesto["Pago de deudas"] || 0, deuR = realDe("Pago de deudas");
+    if (!t.ingresos.p && !t.ingresos.r){ el.innerHTML = '<h3>¿En qué se va tu ingreso?</h3><p class="muted" style="margin:0">Escribe tus ingresos y tu presupuesto para ver cómo se reparte tu dinero.</p>'; return; }
+    var h = barra("¿En qué se va tu ingreso? · Lo que planeaste", t.ingresos.p, t.dar.p, t.ahorrar.p, deuP, t.gastos.p - deuP);
+    if (t.ingresos.r || t.gastos.r) h += barra("Lo que realmente pasó este mes", t.ingresos.r || t.ingresos.p, t.dar.r, t.ahorrar.r, deuR, t.gastos.r - deuR, true);
+    var usa = t.ingresos.r ? "r" : "p", ing = t.ingresos[usa];
+    var lista = SECTIONS.gastos.filter(function(c){ return c !== "Pago de deudas"; })
+      .map(function(c){ return [c, usa === "r" ? realDe(c) : (S.presupuesto[c] || 0)]; })
+      .filter(function(x){ return x[1] > 0; }).sort(function(a,b){ return b[1]-a[1]; });
+    if (lista.length){
+      var max = lista[0][1];
+      h += '<h3>Detalle de los gastos del hogar <span class="muted" style="font-size:13px;font-weight:400;font-family:inherit">('+(usa === "r" ? "real" : "planeado")+', % de tus ingresos)</span></h3><div class="cats">'+
+        lista.map(function(x){ return '<span>'+x[0]+'</span><span class="mini" style="width:'+Math.max(2, x[1]/max*100)+'%"></span><span class="amt">'+money(x[1])+' · <b>'+(ing ? (x[1]/ing*100).toFixed(1).replace(".",",") : "–")+' %</b></span>'; }).join("")+'</div>';
+    }
+    el.innerHTML = h;
   }
 
   // ----- Gastos -----
